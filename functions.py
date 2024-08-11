@@ -277,25 +277,6 @@ def create_and_plot_network(df, node_cols, edge_cols, color_col, node_attr_cols)
     
     return G
 
-
-data = {
-    'account_hash': ['a_h 0', 'a_h 1', 'a_h 2', 'a_h 3', 'a_h 4'],
-    'customer_id': ['c_id 0', 'c_id 1', 'c_id 2', 'c_id 3', 'c_id 4'],
-    'is_fraud': [True, True, True, True, True],
-    'email': ['email0@example.com', 'email1@example.com', 'email2@example.com', 'email3@example.com', 'email4@example.com'],
-    'surname': ['dagio', 'fernando', 'malinet', 'castro', 'johnson'],
-    'amount': [100, 200, 300, 400, 500]
-}
-
-df = pd.DataFrame(data)
-
-nodes = ['account_hash', 'customer_id']
-node_attributes = ['is_fraud', 'email', 'surname']
-edges = ['amount']
-
-G = create_and_plot_network(df, nodes, edges, 'is_fraud', node_attributes)
-
-
 def filter_graph_by_attributes(G, attr_filters):
     """
     Filters the nodes in the graph G based on specified node attributes.
