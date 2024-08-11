@@ -190,8 +190,7 @@ def get_original_value_from_token(token_mapped_value, token_to_original):
             return mapping[token_mapped_value]
     raise ValueError(f"Token-mapped value '{token_mapped_value}' not found in any column.")
 
-
-def create_and_plot_network(df, node_cols, edge_cols, color_col):
+def create_and_plot_network(df, node_cols, edge_cols, color_col, node_attr_cols):
     """
     Creates and plots a network graph from a DataFrame.
     
@@ -200,26 +199,41 @@ def create_and_plot_network(df, node_cols, edge_cols, color_col):
     - node_cols (list): List of node columns (up to 2) to be used in the graph.
     - edge_cols (list): List of edge columns (should be exactly one column for weights).
     - color_col (str): Column name used for node colors.
+    - node_attr_cols (list): List of columns to be used as node attributes.
     
     Returns:
     - G (nx.Graph): The created network graph.
     """
     G = nx.Graph()
     
-    # Add nodes
+    # Add nodes with attributes
     for node_col in node_cols:
         for value in df[node_col].unique():
-            G.add_node(value, node_type=node_col, email=df[df[node_col] == value][color_col].iloc[0])
+            # Combine all relevant attributes for nodes from the DataFrame
+            attributes = {}
+            for col in node_attr_cols:
+                attributes[col] = df[df[node_col] == value][col].iloc[0]
+            attributes['node_type'] = node_col
+            G.add_node(value, **attributes)
     
-    # Add edges
+    # Add edges with summed weights
     if len(edge_cols) != 1:
         raise ValueError("Exactly one edge column is required for weights.")
     
     weight_col = edge_cols[0]
+    edge_weights = {}
     for _, row in df.iterrows():
-        G.add_edge(row[node_cols[0]], row[node_cols[1]], weight=row[weight_col])
+        edge = (row[node_cols[0]], row[node_cols[1]])
+        weight = row[weight_col]
+        if edge in edge_weights:
+            edge_weights[edge] += weight
+        else:
+            edge_weights[edge] = weight
     
-    # Set node colors based on email
+    for edge, weight in edge_weights.items():
+        G.add_edge(*edge, weight=weight)
+    
+    # Set node colors based on color_col
     if color_col:
         unique_values = df[color_col].unique()
         color_map = plt.get_cmap('hsv')
@@ -262,6 +276,36 @@ def create_and_plot_network(df, node_cols, edge_cols, color_col):
     plt.show()
     
     return G
+
+def filter_graph_by_attributes(G, attr_filters):
+    """
+    Filters the nodes in the graph G based on specified node attributes.
+    
+    Parameters:
+    - G (nx.Graph): The original network graph.
+    - attr_filters (dict): Dictionary of attribute filters. Keys are attribute names, and values are the values to filter by.
+    
+    Returns:
+    - filtered_G (nx.Graph): The filtered network graph.
+    """
+    filtered_G = nx.Graph()
+    
+    # Add nodes that match the filter criteria
+    for node, attributes in G.nodes(data=True):
+        match = True
+        for attr, value in attr_filters.items():
+            if attributes.get(attr) != value:
+                match = False
+                break
+        if match:
+            filtered_G.add_node(node, **attributes)
+    
+    # Add edges between the filtered nodes
+    for edge in G.edges(data=True):
+        if edge[0] in filtered_G and edge[1] in filtered_G:
+            filtered_G.add_edge(edge[0], edge[1], **edge[2])
+    
+    return filtered_G
 
 def plot_subgraphs(G, nodes_per_page=6, node_size=70, num_hops=2, 
                     node_font_size=6, title_font_size=10, 
