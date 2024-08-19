@@ -136,6 +136,51 @@ def describe_dataframe(df):
     else:
         print("\nNo numeric columns available for basic statistics.")
 
+
+
+def naive_bayes_conditional_probabilities(df, feature, value):
+    """
+    Calculate the conditional probabilities of a feature value given that a transaction is fraudulent
+    and a transaction being fraudulent given the feature value using Naive Bayes.
+    
+    Parameters:
+    df (pd.DataFrame): The dataframe containing the transaction data.
+    feature (str): The feature for which to calculate the conditional probabilities.
+    value: The value of the feature to calculate the conditional probabilities for.
+    
+    Returns:
+    tuple: A tuple containing P(feature=value | is_fraud=1), P(is_fraud=1 | feature=value), and P(is_fraud=0 | feature=value).
+    """
+    # Calculate P(is_fraud=1)
+    p_fraud = df['is_fraud'].mean()
+    
+    # Calculate P(is_fraud=0)
+    p_not_fraud = 1 - p_fraud
+    
+    # Calculate P(feature=value | is_fraud=1)
+    p_value_given_fraud = df[df['is_fraud'] == 1][feature].value_counts(normalize=True).get(value, 0)
+    
+    # Calculate P(feature=value | is_fraud=0)
+    p_value_given_not_fraud = df[df['is_fraud'] == 0][feature].value_counts(normalize=True).get(value, 0)
+    
+    # Calculate P(feature=value)
+    p_value = df[feature].value_counts(normalize=True).get(value, 0)
+    
+    # Calculate P(is_fraud=1 | feature=value) and P(is_fraud=0 | feature=value) using Bayes' theorem
+    if p_value == 0:
+        p_fraud_given_value = 0
+        p_not_fraud_given_value = 0
+    else:
+        numerator_fraud = p_value_given_fraud * p_fraud
+        numerator_not_fraud = p_value_given_not_fraud * p_not_fraud
+        denominator = numerator_fraud + numerator_not_fraud
+        
+        p_fraud_given_value = numerator_fraud / denominator
+        p_not_fraud_given_value = numerator_not_fraud / denominator
+    
+    return p_fraud_given_value, p_not_fraud_given_value
+
+
 def factorize_and_map(df, token_mapping):
     """
     Factorizes columns in the DataFrame and applies token mapping.
@@ -309,10 +354,13 @@ def filter_graph_by_attributes(G, attr_filters):
 
 def plot_subgraphs(G, nodes_per_page=6, node_size=70, num_hops=2, 
                     node_font_size=6, title_font_size=10, 
-                    edge_label_font_size=6, figsize_per_row=5, max_figures=10):
+                    edge_label_font_size=6, figsize_per_row=5,
+                    max_figures=10, color_attribute='email',
+                    bins=20):
     """
     Plots subgraphs of a network graph, with settings for pagination, node size, 
-    font sizes, and figure size. Limits the number of figures generated.
+    font sizes, and figure size. Limits the number of figures generated and calculates
+    the distribution of the total sum of edge weights per subgraph.
 
     Parameters:
     - G (nx.Graph): The graph to plot.
@@ -324,11 +372,15 @@ def plot_subgraphs(G, nodes_per_page=6, node_size=70, num_hops=2,
     - edge_label_font_size (int): Font size for edge labels.
     - figsize_per_row (int): Figure size per row for the subplot grid.
     - max_figures (int): Maximum number of figures to generate.
+    - color_attribute (str): Node attribute used for coloring nodes.
     """
     
-    # Extract node colors and shapes
-    email_to_color = {node: plt.colormaps['hsv'](i / len(set(nx.get_node_attributes(G, 'email').values())))
-                        for i, node in enumerate(set(nx.get_node_attributes(G, 'email').values()))}
+    # Extract unique values for the color attribute
+    unique_values = set(nx.get_node_attributes(G, color_attribute).values())
+    
+    # Create a color map for the unique values
+    value_to_color = {value: plt.cm.get_cmap('hsv')(i / len(unique_values))
+                        for i, value in enumerate(unique_values)}
     
     # Sort nodes by degree (highest to lowest)
     sorted_nodes = sorted(G.nodes(), key=lambda node: G.degree(node), reverse=True)
@@ -336,6 +388,9 @@ def plot_subgraphs(G, nodes_per_page=6, node_size=70, num_hops=2,
     # Pagination settings
     total_pages = (len(sorted_nodes) + nodes_per_page - 1) // nodes_per_page
     total_pages = min(total_pages, max_figures)
+    
+    # List to store the total sum of edge weights for each subgraph
+    edge_weight_sums = []
     
     for page in range(total_pages):
         start_idx = page * nodes_per_page
@@ -356,7 +411,7 @@ def plot_subgraphs(G, nodes_per_page=6, node_size=70, num_hops=2,
             subgraph = G.subgraph(subgraph_nodes)
 
             # Set subgraph node colors and shapes
-            sub_node_colors = [email_to_color.get(subgraph.nodes[n]['email'], 'grey') for n in subgraph.nodes()]
+            sub_node_colors = [value_to_color.get(subgraph.nodes[n][color_attribute], 'grey') for n in subgraph.nodes()]
             sub_node_shapes = ['o' if subgraph.nodes[n]['node_type'] == 'account' else '^' for n in subgraph.nodes()]
 
             pos = nx.spring_layout(subgraph)
@@ -384,7 +439,11 @@ def plot_subgraphs(G, nodes_per_page=6, node_size=70, num_hops=2,
             edge_weights = nx.get_edge_attributes(subgraph, 'weight')
             nx.draw_networkx_edge_labels(subgraph, pos, edge_labels=edge_weights, ax=ax, font_size=edge_label_font_size)
 
-            ax.set_title(f"Neighborhood (Hops: {num_hops}) of Node {node}", fontsize=title_font_size)
+            # Calculate total sum of edge weights
+            total_edge_weight = sum(edge_weights.values())
+            edge_weight_sums.append(total_edge_weight)
+
+            ax.set_title(f"Neighborhood (Hops: {num_hops}) of Node {node}\nTotal Edge Weight: {total_edge_weight}", fontsize=title_font_size)
             ax.axis('off')
 
         # Hide unused subplots
@@ -393,3 +452,12 @@ def plot_subgraphs(G, nodes_per_page=6, node_size=70, num_hops=2,
 
         plt.tight_layout()
         plt.show()
+    
+    # Plot distribution of total edge weights
+    plt.figure(figsize=(14, 12))
+    plt.hist(edge_weight_sums, bins=bins, color='skyblue', edgecolor='black')
+    plt.title('Distribution of Total Edge Weights per Subgraph', fontsize=12)
+    plt.xlabel('Total Edge Weight', fontsize=10)
+    plt.ylabel('Frequency', fontsize=10)
+    plt.grid(True)
+    plt.show()
